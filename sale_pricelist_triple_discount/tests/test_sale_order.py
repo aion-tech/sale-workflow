@@ -15,7 +15,7 @@ class TestSalePrices(SaleCommon):
         # Enable user groups to be able to set advanced fields using Form
         pricelist_groups = [
             "product.group_discount_per_so_line",  # for product.pricelist.discount_policy
-            "product.group_sale_pricelist",  # for product.pricelist.ite.compute_price
+            "product.group_sale_pricelist",  # for product.pricelist.item.compute_price
         ]
         user = cls.env.user
         for pricelist_group in pricelist_groups:
@@ -182,3 +182,27 @@ class TestSalePrices(SaleCommon):
         self.assertEqual(line.discount3, 30)
         self.assertEqual(line.price_unit, 20)
         self.assertEqual(line.price_subtotal, 10.08)
+
+    def test_pricelist_readonly(self):
+        """A user with readonly access on pricelists can read them and their items."""
+        # Arrange
+        pricelist_form = Form(self.pricelist)
+        pricelist_form.discount_policy = "with_discount"
+        with pricelist_form.item_ids.new() as item:
+            item.compute_price = "percentage"
+            item.percent_price = 10
+            item.discount2 = 20
+            item.discount3 = 30
+        pricelist = pricelist_form.save()
+        readonly_pricelist = pricelist.with_user(self.sale_user)
+        # pre-condition
+        self.assertTrue(
+            readonly_pricelist.check_access_rights("read", raise_exception=False)
+        )
+        self.assertFalse(
+            readonly_pricelist.check_access_rights("write", raise_exception=False)
+        )
+
+        # Assert
+        readonly_pricelist.read()
+        readonly_pricelist.item_ids.read()
