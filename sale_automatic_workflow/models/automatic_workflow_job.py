@@ -5,6 +5,7 @@
 
 import logging
 from contextlib import contextmanager
+from typing import Union
 
 from odoo import api, fields, models
 from odoo.tools.safe_eval import safe_eval
@@ -35,6 +36,11 @@ class AutomaticWorkflowJob(models.Model):
         " invoices, pickings..."
     )
 
+    def _get_filter_sort_by(self, filter_id) -> Union[str, None]:
+        if not filter_id.sort:
+            return None
+        return " ".join([i for i in safe_eval(filter_id.sort)])
+
     def _do_validate_sale_order(
         self, sale, domain_filter, send_order_confirmation=False
     ):
@@ -50,9 +56,9 @@ class AutomaticWorkflowJob(models.Model):
         sale._send_order_confirmation_mail()
 
     @api.model
-    def _validate_sale_orders(self, order_filter):
+    def _validate_sale_orders(self, order_filter, sort_by: Union[str, None]):
         sale_obj = self.env["sale.order"]
-        sales = sale_obj.search(order_filter)
+        sales = sale_obj.search(order_filter, order=sort_by)
         _logger.debug("Sale Orders to validate: %s", sales.ids)
         for sale in sales:
             with savepoint(self.env.cr):
@@ -70,9 +76,9 @@ class AutomaticWorkflowJob(models.Model):
         ).create_invoices()
 
     @api.model
-    def _create_invoices(self, create_filter):
+    def _create_invoices(self, create_filter, sort_by: Union[str, None]):
         sale_obj = self.env["sale.order"]
-        sales = sale_obj.search(create_filter)
+        sales = sale_obj.search(create_filter, order=sort_by)
         _logger.debug("Sale Orders to create Invoice: %s", sales.ids)
         for sale in sales:
             with savepoint(self.env.cr):
@@ -85,9 +91,9 @@ class AutomaticWorkflowJob(models.Model):
         invoice.with_company(invoice.company_id).action_post()
 
     @api.model
-    def _validate_invoices(self, validate_invoice_filter):
+    def _validate_invoices(self, validate_invoice_filter, sort_by: Union[str, None]):
         move_obj = self.env["account.move"]
-        invoices = move_obj.search(validate_invoice_filter)
+        invoices = move_obj.search(validate_invoice_filter, order=sort_by)
         _logger.debug("Invoices to validate: %s", invoices.ids)
         for invoice in invoices:
             with savepoint(self.env.cr):
@@ -100,9 +106,9 @@ class AutomaticWorkflowJob(models.Model):
         picking.validate_picking()
 
     @api.model
-    def _validate_pickings(self, picking_filter):
+    def _validate_pickings(self, picking_filter, sort_by: Union[str, None]):
         picking_obj = self.env["stock.picking"]
-        pickings = picking_obj.search(picking_filter)
+        pickings = picking_obj.search(picking_filter, order=sort_by)
         _logger.debug("Pickings to validate: %s", pickings.ids)
         for picking in pickings:
             with savepoint(self.env.cr):
@@ -113,9 +119,9 @@ class AutomaticWorkflowJob(models.Model):
         sale.action_done()
 
     @api.model
-    def _sale_done(self, sale_done_filter):
+    def _sale_done(self, sale_done_filter, sort_by: Union[str, None]):
         sale_obj = self.env["sale.order"]
-        sales = sale_obj.search(sale_done_filter)
+        sales = sale_obj.search(sale_done_filter, order=sort_by)
         _logger.debug("Sale Orders to done: %s", sales.ids)
         for sale in sales:
             with savepoint(self.env.cr):
@@ -137,9 +143,9 @@ class AutomaticWorkflowJob(models.Model):
         }
 
     @api.model
-    def _register_payments(self, payment_filter):
+    def _register_payments(self, payment_filter, sort_by: Union[str, None]):
         invoice_obj = self.env["account.move"]
-        invoices = invoice_obj.search(payment_filter)
+        invoices = invoice_obj.search(payment_filter, order=sort_by)
         _logger.debug("Invoices to Register Payment: %s", invoices.ids)
         for invoice in invoices:
             with savepoint(self.env.cr):
@@ -171,33 +177,45 @@ class AutomaticWorkflowJob(models.Model):
     def run_with_workflow(self, sale_workflow):
         workflow_domain = self._sale_workflow_domain(sale_workflow)
         if sale_workflow.validate_order:
+            sort_by = self._get_filter_sort_by(sale_workflow.order_filter_id)
             self.with_context(
                 send_order_confirmation_mail=sale_workflow.send_order_confirmation_mail
             )._validate_sale_orders(
-                safe_eval(sale_workflow.order_filter_id.domain) + workflow_domain
+                safe_eval(sale_workflow.order_filter_id.domain) + workflow_domain,
+                sort_by,
             )
         if sale_workflow.validate_picking:
+            sort_by = self._get_filter_sort_by(sale_workflow.picking_filter_id)
             self._validate_pickings(
-                safe_eval(sale_workflow.picking_filter_id.domain) + workflow_domain
+                safe_eval(sale_workflow.picking_filter_id.domain) + workflow_domain,
+                sort_by,
             )
         if sale_workflow.create_invoice:
+            sort_by = self._get_filter_sort_by(sale_workflow.create_invoice_filter_id)
             self._create_invoices(
                 safe_eval(sale_workflow.create_invoice_filter_id.domain)
-                + workflow_domain
+                + workflow_domain,
+                sort_by,
             )
         if sale_workflow.validate_invoice:
+            sort_by = self._get_filter_sort_by(sale_workflow.validate_invoice_filter_id)
             self._validate_invoices(
                 safe_eval(sale_workflow.validate_invoice_filter_id.domain)
-                + workflow_domain
+                + workflow_domain,
+                sort_by,
             )
         if sale_workflow.sale_done:
+            sort_by = self._get_filter_sort_by(sale_workflow.sale_done_filter_id)
             self._sale_done(
-                safe_eval(sale_workflow.sale_done_filter_id.domain) + workflow_domain
+                safe_eval(sale_workflow.sale_done_filter_id.domain) + workflow_domain,
+                sort_by,
             )
 
         if sale_workflow.register_payment:
+            sort_by = self._get_filter_sort_by(sale_workflow.payment_filter_id)
             self._register_payments(
-                safe_eval(sale_workflow.payment_filter_id.domain) + workflow_domain
+                safe_eval(sale_workflow.payment_filter_id.domain) + workflow_domain,
+                sort_by,
             )
 
     @api.model
