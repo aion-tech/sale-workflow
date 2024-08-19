@@ -85,16 +85,16 @@ class ProductPricelistItem(models.Model):
             if item_discount_field is not None:
                 original_discount = item[item_discount_field]
                 item_to_original_discount[item] = original_discount
-                item[item_discount_field] = item._get_triple_discount()
+                item.sudo()[item_discount_field] = item._get_triple_discount()
 
         yield
 
-        # Restore the original discount in each updated
+        # Restore the original discount in each updated rule
         for item, original_discount in item_to_original_discount.items():
             item_discount_field = COMPUTE_PRICE_TO_DISCOUNT_FIELD.get(
                 item.compute_price
             )
-            item[item_discount_field] = original_discount
+            item.sudo()[item_discount_field] = original_discount
 
     def _compute_price(self, product, quantity, uom, date, currency=None):
         with self._patch_triple_discount():
